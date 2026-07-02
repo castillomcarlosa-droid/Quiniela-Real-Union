@@ -1,0 +1,124 @@
+import streamlit as st
+import pandas as pd
+import json
+import os
+
+# Configuración de la página
+st.set_page_config(page_title="🏆 Quiniela Mundial 2026", layout="centered")
+
+DATA_FILE = "quiniela_data.json"
+
+# Base de datos inicial (Partidos a partir del 4 de julio para el ejemplo)
+def load_data():
+    if not os.path.exists(DATA_FILE):
+        return {
+            "partidos": [
+                {"id": 1, "fase": "Octavos", "eq1": "Argentina", "eq2": "Cabo Verde", "goles_eq1": None, "goles_eq2": None},
+                {"id": 2, "fase": "Octavos", "eq1": "Colombia", "eq2": "Ghana", "goles_eq1": None, "goles_eq2": None},
+                {"id": 3, "fase": "Cuartos", "eq1": "Por definir", "eq2": "Por definir", "goles_eq1": None, "goles_eq2": None}
+            ],
+            "jugadores": {} # Formato: {"Nombre": {"1": {"eq1": 2, "eq2": 1}}}
+        }
+    with open(DATA_FILE, "r") as f:
+        return json.load(f)
+
+def save_data(data):
+    with open(DATA_FILE, "w") as f:
+        json.dump(data, f)
+
+data = load_data()
+
+st.title("⚽ Quiniela Mundial 2026 - Real Unión")
+
+# Pestañas de la app
+tab1, tab2, tab3 = st.tabs(["📊 Dashboard (Ranking)", "📝 Mis Predicciones", "⚙️ Admin"])
+
+# --- PESTAÑA 1: DASHBOARD ---
+with tab1:
+    st.subheader("Tabla de Posiciones")
+    ranking = []
+    
+    for jugador, predicciones in data["jugadores"].items():
+        puntos = 0
+        plenos = 0
+        for p in data["partidos"]:
+            pid = str(p["id"])
+            if p["goles_eq1"] is not None and p["goles_eq2"] is not None and pid in predicciones:
+                real_1, real_2 = p["goles_eq1"], p["goles_eq2"]
+                pred_1, pred_2 = predicciones[pid]["eq1"], predicciones[pid]["eq2"]
+                
+                if real_1 == pred_1 and real_2 == pred_2:
+                    puntos += 3
+                    plenos += 1
+                elif (real_1 > real_2 and pred_1 > pred_2) or (real_1 < real_2 and pred_1 < pred_2) or (real_1 == real_2 and pred_1 == pred_2):
+                    puntos += 1
+        ranking.append({"Jugador": jugador, "Puntos": puntos, "Plenos (3pts)": plenos})
+    
+    if ranking:
+        df_ranking = pd.DataFrame(ranking).sort_values(by=["Puntos", "Plenos (3pts)"], ascending=[False, False]).reset_index(drop=True)
+        df_ranking.index += 1
+        st.dataframe(df_ranking, use_container_width=True)
+    else:
+        st.info("Aún no hay jugadores registrados.")
+
+# --- PESTAÑA 2: PREDICCIONES ---
+with tab2:
+    usuario = st.text_input("Ingresa tu nombre para jugar (Ej. Juan Perez):")
+    if usuario:
+        if usuario not in data["jugadores"]:
+            data["jugadores"][usuario] = {}
+            save_data(data)
+            
+        st.write(f"👋 Bienvenido, **{usuario}**. Coloca tus resultados aquí:")
+        
+        for p in data["partidos"]:
+            pid = str(p["id"])
+            # Bloqueo: Si no hay equipos definidos o si el admin ya puso el resultado real
+            if p["eq1"] == "Por definir" or p["eq2"] == "Por definir":
+                st.warning(f"🔒 {p['fase']}: Partido bloqueado hasta que se definan los equipos.")
+            elif p["goles_eq1"] is not None:
+                st.error(f"✅ {p['fase']}: {p['eq1']} vs {p['eq2']} - Finalizado. Ya no puedes apostar.")
+            else:
+                col1, col2, col3 = st.columns([2, 1, 2])
+                pred_actual_1 = data["jugadores"][usuario].get(pid, {}).get("eq1", 0)
+                pred_actual_2 = data["jugadores"][usuario].get(pid, {}).get("eq2", 0)
+                
+                with col1:
+                    g1 = st.number_input(f"{p['eq1']}", min_value=0, step=1, key=f"g1_{usuario}_{pid}", value=pred_actual_1)
+                with col3:
+                    g2 = st.number_input(f"{p['eq2']}", min_value=0, step=1, key=f"g2_{usuario}_{pid}", value=pred_actual_2)
+                
+                if st.button("Guardar Pronóstico", key=f"btn_{usuario}_{pid}"):
+                    data["jugadores"][usuario][pid] = {"eq1": g1, "eq2": g2}
+                    save_data(data)
+                    st.success("¡Guardado!")
+                st.divider()
+
+# --- PESTAÑA 3: ADMIN ---
+with tab3:
+    st.subheader("Acceso exclusivo para el Administrador")
+    clave = st.text_input("Contraseña", type="password")
+    
+    if clave == "temix.1234":
+        st.success("Acceso concedido.")
+        st.write("Ingresa los resultados reales de los partidos terminados:")
+        
+        for p in data["partidos"]:
+            st.write(f"**{p['fase']}: {p['eq1']} vs {p['eq2']}**")
+            col1, col2 = st.columns(2)
+            
+            # Mostrar valores actuales si existen, si no 0
+            val1 = p["goles_eq1"] if p["goles_eq1"] is not None else 0
+            val2 = p["goles_eq2"] if p["goles_eq2"] is not None else 0
+            
+            with col1:
+                rg1 = st.number_input(f"Goles {p['eq1']}", min_value=0, step=1, key=f"rg1_{p['id']}", value=val1)
+            with col2:
+                rg2 = st.number_input(f"Goles {p['eq2']}", min_value=0, step=1, key=f"rg2_{p['id']}", value=val2)
+            
+            if st.button("Actualizar Resultado Real", key=f"rbtn_{p['id']}"):
+                p["goles_eq1"] = rg1
+                p["goles_eq2"] = rg2
+                save_data(data)
+                st.success("Resultado oficial actualizado.")
+            st.divider()
