@@ -160,7 +160,6 @@ with tab1:
 with tab2:
     usuario_sesion = st.session_state["usuario_logueado"]
     
-    # Si NO hay sesión iniciada, mostramos Login/Registro
     if usuario_sesion is None:
         st.subheader("🔐 Inicio de Sesión / Registro")
         usuario_raw = st.text_input("Ingresa tu nombre para jugar (Ej: Carlos Silva):").strip()
@@ -194,7 +193,6 @@ with tab2:
                         st.session_state["usuario_logueado"] = usuario
                         st.rerun()
                         
-    # Si SÍ hay sesión iniciada, mostramos el Panel de Pronósticos directamente
     else:
         info_usuario = data["jugadores"][usuario_sesion]
         
@@ -213,9 +211,13 @@ with tab2:
         else:
             st.success(f"🔓 **Acceso Concedido.** Gestiona tus pronósticos:")
             
-            respaldo_txt = f"🏆 QUINIELA REAL UNIÓN - TICKET DE RESPALDO 🏆\n"
-            respaldo_txt += f"👤 Jugador: {usuario_sesion}\n"
-            respaldo_txt += "-"*45 + "\n"
+            # --- FORMATO MEJORADO DEL TICKET (ESTILO CAJA/VERTICAL) ---
+            respaldo_txt = "====================================================\n"
+            respaldo_txt += "       🏆 TICKET DE APUESTAS - REAL UNIÓN 🏆        \n"
+            respaldo_txt += "====================================================\n"
+            respaldo_txt += f" 👤 JUGADOR:  {usuario_sesion.upper()}\n"
+            respaldo_txt += f" 🕒 EMITIDO:  {ahora_chile.strftime('%d/%m/%Y %H:%M')} (Hora Chile)\n"
+            respaldo_txt += "====================================================\n\n"
             hay_apuestas = False
 
             for p in data["partidos"]:
@@ -234,11 +236,16 @@ with tab2:
                     st.info(f"🔒 Partido bloqueado. Esperando definición de llaves previas.")
                 elif p["goles_eq1"] is not None:
                     st.error(f"🏁 Finalizado: {p['eq1']} {p['goles_eq1']} - {p['goles_eq2']} {p['eq2']}. Tu apuesta fue: {info_usuario['predicciones'].get(pid, {}).get('eq1', '-')}-{info_usuario['predicciones'].get(pid, {}).get('eq2', '-')}")
+                    
                     if pid in info_usuario["predicciones"]:
                         hay_apuestas = True
                         pr1 = info_usuario["predicciones"][pid]["eq1"]
                         pr2 = info_usuario["predicciones"][pid]["eq2"]
-                        respaldo_txt += f"{p['fase']}: {p['eq1']} {pr1} - {pr2} {p['eq2']} (FINALIZADO)\n"
+                        respaldo_txt += f"📌 {p['fase']} ({p['fecha']})\n"
+                        respaldo_txt += f"   {p['eq1']}  [{pr1} - {pr2}]  {p['eq2']}\n"
+                        respaldo_txt += f"   Estado: FINALIZADO\n"
+                        respaldo_txt += "----------------------------------------------------\n"
+                        
                 elif ya_comenzo:
                     st.warning(f"⏳ Partido en juego o finalizado (Hora de cierre: {p['hora']}). Las apuestas están cerradas.")
                     val1 = info_usuario["predicciones"].get(pid, {}).get("eq1", "No apostó")
@@ -248,7 +255,10 @@ with tab2:
                     else:
                         st.write(f"Tu pronóstico asegurado: **{val1} - {val2}**")
                         hay_apuestas = True
-                        respaldo_txt += f"{p['fase']}: {p['eq1']} {val1} - {val2} {p['eq2']} (CERRADO)\n"
+                        respaldo_txt += f"📌 {p['fase']} ({p['fecha']})\n"
+                        respaldo_txt += f"   {p['eq1']}  [{val1} - {val2}]  {p['eq2']}\n"
+                        respaldo_txt += f"   Estado: CERRADO (En juego)\n"
+                        respaldo_txt += "----------------------------------------------------\n"
                 else:
                     col1, col2, col3 = st.columns([2,1,2])
                     val1 = info_usuario["predicciones"].get(pid, {}).get("eq1", 0)
@@ -267,7 +277,10 @@ with tab2:
                         hay_apuestas = True
                         pr1_g = info_usuario["predicciones"][pid]["eq1"]
                         pr2_g = info_usuario["predicciones"][pid]["eq2"]
-                        respaldo_txt += f"{p['fase']}: {p['eq1']} {pr1_g} - {pr2_g} {p['eq2']} (PENDIENTE)\n"
+                        respaldo_txt += f"📌 {p['fase']} ({p['fecha']})\n"
+                        respaldo_txt += f"   {p['eq1']}  [{pr1_g} - {pr2_g}]  {p['eq2']}\n"
+                        respaldo_txt += f"   Estado: GUARDADO (Pendiente)\n"
+                        respaldo_txt += "----------------------------------------------------\n"
                 
                 ya_aposto = pid in info_usuario["predicciones"]
                 with st.expander("👁️ Ver qué apostaron los demás muchachos"):
