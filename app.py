@@ -9,6 +9,10 @@ st.set_page_config(page_title="🏆 Quiniela Real Unión 2026", layout="centered
 
 DATA_FILE = "quiniela_data_v3.json"
 
+# Inicializar variable de sesión
+if "usuario_logueado" not in st.session_state:
+    st.session_state["usuario_logueado"] = None
+
 def load_data():
     if not os.path.exists(DATA_FILE):
         return {
@@ -81,7 +85,6 @@ def resolver_llaves(partidos):
 data = load_data()
 resolver_llaves(data["partidos"])
 
-# --- LÓGICA DE TIEMPO CHILE ---
 tz_chile = pytz.timezone("America/Santiago")
 ahora_chile = datetime.datetime.now(tz_chile)
 
@@ -155,121 +158,142 @@ with tab1:
 
 # --- PESTAÑA 2: MIS PREDICCIONES ---
 with tab2:
-    usuario_raw = st.text_input("Ingresa tu nombre para jugar:").strip()
-    usuario = usuario_raw.title()
+    usuario_sesion = st.session_state["usuario_logueado"]
     
-    if usuario:
-        if usuario not in data["jugadores"]:
-            st.info(f"✨ El usuario **{usuario}** es nuevo. Configura tu acceso aquí:")
-            nueva_clave = st.text_input("Crea una contraseña para tu cuenta:", type="password", key="reg_pass")
-            
-            if st.button("Crear Cuenta y Registrarme"):
-                if nueva_clave:
-                    data["jugadores"][usuario] = {
-                        "aprobado": False, 
-                        "clave": nueva_clave,
-                        "predicciones": {}
-                    }
-                    save_data(data)
-                    st.success("¡Registro Exitoso! Ahora introduce tu contraseña abajo para ingresar.")
-                    st.rerun()
-                else:
-                    st.error("Por favor introduce una contraseña válida.")
-        else:
-            info_usuario = data["jugadores"][usuario]
-            clave_ingresada = st.text_input("Introduce tu contraseña personal:", type="password", key="login_pass")
-            
-            if clave_ingresada:
-                if clave_ingresada != info_usuario.get("clave", ""):
-                    st.error("❌ Contraseña incorrecta. (Si la olvidaste, pide al Admin que la restablezca).")
-                else:
-                    if not info_usuario.get("aprobado", False):
-                        st.warning(f"🚨 **Hola {usuario}.** Tu cuenta está **Bloqueada por Pago**. Avisa al administrador apenas realices tu transferencia.")
+    # Si NO hay sesión iniciada, mostramos Login/Registro
+    if usuario_sesion is None:
+        st.subheader("🔐 Inicio de Sesión / Registro")
+        usuario_raw = st.text_input("Ingresa tu nombre para jugar (Ej: Carlos Silva):").strip()
+        usuario = usuario_raw.title()
+        
+        if usuario:
+            if usuario not in data["jugadores"]:
+                st.info(f"✨ El usuario **{usuario}** es nuevo. Configura tu acceso aquí:")
+                nueva_clave = st.text_input("Crea una contraseña para tu cuenta:", type="password", key="reg_pass")
+                
+                if st.button("Crear Cuenta e Iniciar Sesión"):
+                    if nueva_clave:
+                        data["jugadores"][usuario] = {
+                            "aprobado": False, 
+                            "clave": nueva_clave,
+                            "predicciones": {}
+                        }
+                        save_data(data)
+                        st.session_state["usuario_logueado"] = usuario
+                        st.rerun()
                     else:
-                        st.success(f"🔓 **Acceso Concedido.** Bienvenido {usuario}.")
+                        st.error("Por favor introduce una contraseña válida.")
+            else:
+                info_usuario = data["jugadores"][usuario]
+                clave_ingresada = st.text_input("Introduce tu contraseña personal:", type="password", key="login_pass")
+                
+                if st.button("Iniciar Sesión"):
+                    if clave_ingresada != info_usuario.get("clave", ""):
+                        st.error("❌ Contraseña incorrecta. (Si la olvidaste, pide al Admin que la restablezca).")
+                    else:
+                        st.session_state["usuario_logueado"] = usuario
+                        st.rerun()
                         
-                        respaldo_txt = f"🏆 QUINIELA REAL UNIÓN - TICKET DE RESPALDO 🏆\n"
-                        respaldo_txt += f"👤 Jugador: {usuario}\n"
-                        respaldo_txt += "-"*45 + "\n"
-                        hay_apuestas = False
+    # Si SÍ hay sesión iniciada, mostramos el Panel de Pronósticos directamente
+    else:
+        info_usuario = data["jugadores"][usuario_sesion]
+        
+        col_bienvenida, col_salir = st.columns([3, 1])
+        with col_bienvenida:
+            st.write(f"👤 Sesión activa: **{usuario_sesion}**")
+        with col_salir:
+            if st.button("🔴 Cerrar Sesión"):
+                st.session_state["usuario_logueado"] = None
+                st.rerun()
+        
+        st.write("---")
+        
+        if not info_usuario.get("aprobado", False):
+            st.warning(f"🚨 **Hola {usuario_sesion}.** Tu cuenta está **Bloqueada por Pago**. Avisa al administrador apenas realices tu transferencia para habilitar tus pronósticos.")
+        else:
+            st.success(f"🔓 **Acceso Concedido.** Gestiona tus pronósticos:")
+            
+            respaldo_txt = f"🏆 QUINIELA REAL UNIÓN - TICKET DE RESPALDO 🏆\n"
+            respaldo_txt += f"👤 Jugador: {usuario_sesion}\n"
+            respaldo_txt += "-"*45 + "\n"
+            hay_apuestas = False
 
-                        for p in data["partidos"]:
-                            pid = str(p["id"])
-                            st.write(f"**{p['fase']} | 📅 {p['fecha']} - 🕒 {p['hora']} (Hora Chile)**")
-                            
-                            try:
-                                dia, mes = map(int, p["fecha"].split('/'))
-                                hora_p, min_p = map(int, p["hora"].split(':'))
-                                dt_partido = tz_chile.localize(datetime.datetime(2026, mes, dia, hora_p, min_p))
-                                ya_comenzo = ahora_chile >= dt_partido
-                            except ValueError:
-                                # Prevención de error por si se ingresa una fecha/hora con formato inválido
-                                ya_comenzo = False 
-                            
-                            if "Por definir" in p["eq1"] or "Por definir" in p["eq2"]:
-                                st.info(f"🔒 Partido bloqueado. Esperando definición de llaves previas.")
-                            elif p["goles_eq1"] is not None:
-                                st.error(f"🏁 Finalizado: {p['eq1']} {p['goles_eq1']} - {p['goles_eq2']} {p['eq2']}. Tu apuesta fue: {info_usuario['predicciones'].get(pid, {}).get('eq1', '-')}-{info_usuario['predicciones'].get(pid, {}).get('eq2', '-')}")
-                                if pid in info_usuario["predicciones"]:
-                                    hay_apuestas = True
-                                    pr1 = info_usuario["predicciones"][pid]["eq1"]
-                                    pr2 = info_usuario["predicciones"][pid]["eq2"]
-                                    respaldo_txt += f"{p['fase']}: {p['eq1']} {pr1} - {pr2} {p['eq2']} (FINALIZADO)\n"
-                            elif ya_comenzo:
-                                st.warning(f"⏳ Partido en juego o finalizado (Hora de cierre: {p['hora']}). Las apuestas están cerradas.")
-                                val1 = info_usuario["predicciones"].get(pid, {}).get("eq1", "No apostó")
-                                val2 = info_usuario["predicciones"].get(pid, {}).get("eq2", "")
-                                if val1 == "No apostó":
-                                    st.write("No registraste pronóstico a tiempo.")
-                                else:
-                                    st.write(f"Tu pronóstico asegurado: **{val1} - {val2}**")
-                                    hay_apuestas = True
-                                    respaldo_txt += f"{p['fase']}: {p['eq1']} {val1} - {val2} {p['eq2']} (CERRADO)\n"
-                            else:
-                                col1, col2, col3 = st.columns([2,1,2])
-                                val1 = info_usuario["predicciones"].get(pid, {}).get("eq1", 0)
-                                val2 = info_usuario["predicciones"].get(pid, {}).get("eq2", 0)
-                                
-                                with col1: pr1 = st.number_input(f"{p['eq1']}", min_value=0, step=1, value=val1, key=f"p1_{pid}")
-                                with col3: pr2 = st.number_input(f"{p['eq2']}", min_value=0, step=1, value=val2, key=f"p2_{pid}")
-                                
-                                if st.button("Guardar Apuesta", key=f"save_{pid}"):
-                                    info_usuario["predicciones"][pid] = {"eq1": pr1, "eq2": pr2}
-                                    save_data(data)
-                                    st.success("¡Apuesta guardada correctamente!")
-                                    st.rerun() 
-                                
-                                if pid in info_usuario["predicciones"]:
-                                    hay_apuestas = True
-                                    pr1_g = info_usuario["predicciones"][pid]["eq1"]
-                                    pr2_g = info_usuario["predicciones"][pid]["eq2"]
-                                    respaldo_txt += f"{p['fase']}: {p['eq1']} {pr1_g} - {pr2_g} {p['eq2']} (PENDIENTE)\n"
-                            
-                            ya_aposto = pid in info_usuario["predicciones"]
-                            with st.expander("👁️ Ver qué apostaron los demás muchachos"):
-                                if not ya_aposto:
-                                    st.warning("🔒 Debes guardar tu propia apuesta primero para poder ver la de los demás.")
-                                else:
-                                    otros_datos = []
-                                    for otro_j, otro_info in data["jugadores"].items():
-                                        if otro_j != usuario and otro_info.get("aprobado", False):
-                                            o_pred = otro_info["predicciones"].get(pid, None)
-                                            o_txt = f"{o_pred['eq1']} - {o_pred['eq2']}" if o_pred else "No ha apostado"
-                                            otros_datos.append({"Jugador": otro_j, "Apuesta": o_txt})
-                                    if otros_datos:
-                                        st.table(pd.DataFrame(otros_datos))
-                                    else:
-                                        st.info("Nadie más ha apostado aún.")
-                            st.divider()
-                        
-                        if hay_apuestas:
-                            st.write("### 🧾 Comprobante de Apuestas")
-                            st.download_button(
-                                label="📥 Descargar mi Ticket de Respaldo (.txt)",
-                                data=respaldo_txt,
-                                file_name=f"Ticket_Quiniela_{usuario.replace(' ', '_')}.txt",
-                                mime="text/plain"
-                            )
+            for p in data["partidos"]:
+                pid = str(p["id"])
+                st.write(f"**{p['fase']} | 📅 {p['fecha']} - 🕒 {p['hora']} (Hora Chile)**")
+                
+                try:
+                    dia, mes = map(int, p["fecha"].split('/'))
+                    hora_p, min_p = map(int, p["hora"].split(':'))
+                    dt_partido = tz_chile.localize(datetime.datetime(2026, mes, dia, hora_p, min_p))
+                    ya_comenzo = ahora_chile >= dt_partido
+                except ValueError:
+                    ya_comenzo = False 
+                
+                if "Por definir" in p["eq1"] or "Por definir" in p["eq2"]:
+                    st.info(f"🔒 Partido bloqueado. Esperando definición de llaves previas.")
+                elif p["goles_eq1"] is not None:
+                    st.error(f"🏁 Finalizado: {p['eq1']} {p['goles_eq1']} - {p['goles_eq2']} {p['eq2']}. Tu apuesta fue: {info_usuario['predicciones'].get(pid, {}).get('eq1', '-')}-{info_usuario['predicciones'].get(pid, {}).get('eq2', '-')}")
+                    if pid in info_usuario["predicciones"]:
+                        hay_apuestas = True
+                        pr1 = info_usuario["predicciones"][pid]["eq1"]
+                        pr2 = info_usuario["predicciones"][pid]["eq2"]
+                        respaldo_txt += f"{p['fase']}: {p['eq1']} {pr1} - {pr2} {p['eq2']} (FINALIZADO)\n"
+                elif ya_comenzo:
+                    st.warning(f"⏳ Partido en juego o finalizado (Hora de cierre: {p['hora']}). Las apuestas están cerradas.")
+                    val1 = info_usuario["predicciones"].get(pid, {}).get("eq1", "No apostó")
+                    val2 = info_usuario["predicciones"].get(pid, {}).get("eq2", "")
+                    if val1 == "No apostó":
+                        st.write("No registraste pronóstico a tiempo.")
+                    else:
+                        st.write(f"Tu pronóstico asegurado: **{val1} - {val2}**")
+                        hay_apuestas = True
+                        respaldo_txt += f"{p['fase']}: {p['eq1']} {val1} - {val2} {p['eq2']} (CERRADO)\n"
+                else:
+                    col1, col2, col3 = st.columns([2,1,2])
+                    val1 = info_usuario["predicciones"].get(pid, {}).get("eq1", 0)
+                    val2 = info_usuario["predicciones"].get(pid, {}).get("eq2", 0)
+                    
+                    with col1: pr1 = st.number_input(f"{p['eq1']}", min_value=0, step=1, value=val1, key=f"p1_{pid}")
+                    with col3: pr2 = st.number_input(f"{p['eq2']}", min_value=0, step=1, value=val2, key=f"p2_{pid}")
+                    
+                    if st.button("Guardar Apuesta", key=f"save_{pid}"):
+                        info_usuario["predicciones"][pid] = {"eq1": pr1, "eq2": pr2}
+                        save_data(data)
+                        st.success("¡Apuesta guardada correctamente!")
+                        st.rerun() 
+                    
+                    if pid in info_usuario["predicciones"]:
+                        hay_apuestas = True
+                        pr1_g = info_usuario["predicciones"][pid]["eq1"]
+                        pr2_g = info_usuario["predicciones"][pid]["eq2"]
+                        respaldo_txt += f"{p['fase']}: {p['eq1']} {pr1_g} - {pr2_g} {p['eq2']} (PENDIENTE)\n"
+                
+                ya_aposto = pid in info_usuario["predicciones"]
+                with st.expander("👁️ Ver qué apostaron los demás muchachos"):
+                    if not ya_aposto:
+                        st.warning("🔒 Debes guardar tu propia apuesta primero para poder ver la de los demás.")
+                    else:
+                        otros_datos = []
+                        for otro_j, otro_info in data["jugadores"].items():
+                            if otro_j != usuario_sesion and otro_info.get("aprobado", False):
+                                o_pred = otro_info["predicciones"].get(pid, None)
+                                o_txt = f"{o_pred['eq1']} - {o_pred['eq2']}" if o_pred else "No ha apostado"
+                                otros_datos.append({"Jugador": otro_j, "Apuesta": o_txt})
+                        if otros_datos:
+                            st.table(pd.DataFrame(otros_datos))
+                        else:
+                            st.info("Nadie más ha apostado aún.")
+                st.divider()
+            
+            if hay_apuestas:
+                st.write("### 🧾 Comprobante de Apuestas")
+                st.download_button(
+                    label="📥 Descargar mi Ticket de Respaldo (.txt)",
+                    data=respaldo_txt,
+                    file_name=f"Ticket_Quiniela_{usuario_sesion.replace(' ', '_')}.txt",
+                    mime="text/plain"
+                )
 
 # --- PESTAÑA 3: PANEL ADMIN ---
 with tab3:
@@ -312,7 +336,6 @@ with tab3:
             if "Por definir" in p["eq1"] or "Por definir" in p["eq2"]: continue
             st.write(f"**{p['fase']} | {p['eq1']} vs {p['eq2']}**")
             
-            # --- NUEVO: EDITAR FECHA Y HORA ---
             with st.expander("🕒 Editar Horario del Partido"):
                 c_f, c_h = st.columns(2)
                 with c_f: n_fecha = st.text_input(f"Fecha (DD/MM)", value=p["fecha"], key=f"ef_{p['id']}")
@@ -324,7 +347,6 @@ with tab3:
                     st.success("Horario guardado. Verifica el candado de tiempo.")
                     st.rerun()
             
-            # --- REGISTRAR MARCADORES OFICIALES ---
             with st.expander("🎯 Registrar Resultado Final"):
                 col1, col2 = st.columns(2)
                 v1 = p["goles_eq1"] if p["goles_eq1"] is not None else 0
