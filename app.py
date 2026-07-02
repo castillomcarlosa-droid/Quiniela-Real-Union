@@ -3,12 +3,12 @@ import pandas as pd
 import json
 import os
 
-# Configuración de la página con estilo deportivo
+# Configuración de la página
 st.set_page_config(page_title="🏆 Quiniela Pro Mundial 2026", layout="centered")
 
 DATA_FILE = "quiniela_pro_data.json"
 
-# Inicialización de la base de datos con los 19 partidos reales a partir de mañana
+# Inicialización de la base de datos con los 19 partidos reales
 def load_data():
     if not os.path.exists(DATA_FILE):
         return {
@@ -42,7 +42,6 @@ def save_data(data):
     with open(DATA_FILE, "w") as f:
         json.dump(data, f)
 
-# Lógica interna para avanzar ganadores automáticamente en las llaves
 def resolver_llaves(partidos):
     p_map = {p["id"]: p for p in partidos}
     def get_winner(pid):
@@ -56,10 +55,9 @@ def resolver_llaves(partidos):
         p = p_map[pid]
         if p["goles_eq1"] is None or p["goles_eq2"] is None: return None
         if p["goles_eq1"] < p["goles_eq2"]: return p["eq1"]
-        if p["goles_eq2"] < p["goles_eq1"]: return p["eq2"]
+        if p["goles_eq2"] < p["goles_eq1"]: return p["eq1"]
         return p.get("perdedor_manual", None)
 
-    # Actualización encadenada de partidos según resultados reales
     if get_winner(2): p_map[10]["eq1"] = get_winner(2)
     if get_winner(1): p_map[10]["eq2"] = get_winner(1)
     if get_winner(3): p_map[11]["eq2"] = get_winner(3)
@@ -148,60 +146,82 @@ with tab1:
     else:
         st.info("Aún no hay posiciones disponibles (los jugadores deben estar aprobados por el Admin).")
 
-# --- PESTAÑA 2: MIS PREDICCIONES (ANTI-COPIA & ACCESO DE PAGO) ---
+# --- PESTAÑA 2: MIS PREDICCIONES (ACCESO PRIVADO CON CONTRASEÑA) ---
 with tab2:
-    usuario = st.text_input("Ingresa tu nombre completo para ingresar a tus apuestas:").strip()
+    usuario = st.text_input("Ingresa tu nombre completo (Ej: Carlos Silva):").strip()
+    
     if usuario:
+        # CASO A: JUGADOR NUEVO (REGISTRO)
         if usuario not in data["jugadores"]:
-            data["jugadores"][usuario] = {"aprobado": False, "predicciones": {}}
-            save_data(data)
-        
-        info_usuario = data["jugadores"][usuario]
-        
-        if not info_usuario.get("aprobado", False):
-            st.warning(f"🚨 **Hola {usuario}.** Tu registro fue exitoso, pero está **Bloqueado por Pago**. Por favor realiza tu transferencia al administrador. Una vez verificado tu saldo, se activará tu acceso.")
-        else:
-            st.success(f"🔓 **Acceso Concedido.** Cuenta Verificada para {usuario}. Llena tus pronósticos:")
+            st.info(f"✨ El usuario **{usuario}** no está registrado en el sistema. Configura tu acceso aquí:")
+            nueva_clave = st.text_input("Crea una contraseña para tu cuenta:", type="password", key="reg_pass")
             
-            for p in data["partidos"]:
-                pid = str(p["id"])
-                st.write(f"**{p['fase']} ({p['fecha']})**")
-                
-                # Regla de bloqueo estricto si no hay equipos definidos o si ya se jugó
-                if "Por definir" in p["eq1"] or "Por definir" in p["eq2"]:
-                    st.info(f"🔒 Partido bloqueado. Esperando definición de equipos de fases previas.")
-                elif p["goles_eq1"] is not None:
-                    st.error(f"🏁 Partido Finalizado Oficialmente: {p['eq1']} {p['goles_eq1']} - {p['goles_eq2']} {p['eq2']}. Tu apuesta fue: {info_usuario['predicciones'].get(pid, {}).get('eq1', '-')}-{info_usuario['predicciones'].get(pid, {}).get('eq2', '-')}")
+            if st.button("Crear Cuenta y Registrarme"):
+                if nueva_clave:
+                    data["jugadores"][usuario] = {
+                        "aprobado": False, 
+                        "clave": nueva_clave,
+                        "predicciones": {}
+                    }
+                    save_data(data)
+                    st.success("¡Registro Exitoso! Ahora introduce tu contraseña abajo para ingresar a tu panel.")
+                    st.rerun()
                 else:
-                    col1, col2, col3 = st.columns([2,1,2])
-                    val1 = info_usuario["predicciones"].get(pid, {}).get("eq1", 0)
-                    val2 = info_usuario["predicciones"].get(pid, {}).get("eq2", 0)
-                    
-                    with col1: pr1 = st.number_input(f"Goles {p['eq1']}", min_value=0, step=1, value=val1, key=f"p1_{pid}")
-                    with col3: pr2 = st.number_input(f"Goles {p['eq2']}", min_value=0, step=1, value=val2, key=f"p2_{pid}")
-                    
-                    if st.button("Guardar Apuesta", key=f"save_{pid}"):
-                        info_usuario["predicciones"][pid] = {"eq1": pr1, "eq2": pr2}
-                        save_data(data)
-                        st.success("¡Apuesta guardada correctamente!")
-                
-                # --- SISTEMA ANTI-COPIA (Transparencia Condicional) ---
-                ya_aposto = pid in info_usuario["predicciones"]
-                with st.expander("👁️ Ver qué apostaron los demás muchachos"):
-                    if not ya_aposto:
-                        st.warning("🔒 Para evitar copias, debes registrar y guardar tu propia apuesta primero para poder desbloquear los pronósticos de los demás.")
+                    st.error("Por favor introduce una contraseña válida.")
+        
+        # CASO B: JUGADOR EXISTENTE (LOGIN)
+        else:
+            info_usuario = data["jugadores"][usuario]
+            clave_ingresada = st.text_input("Introduce tu contraseña personal:", type="password", key="login_pass")
+            
+            if clave_ingresada:
+                if clave_ingresada != info_usuario.get("clave", ""):
+                    st.error("❌ Contraseña incorrecta. Protegemos tu cuenta de accesos no autorizados.")
+                else:
+                    # VALIDACIÓN DE PAGO
+                    if not info_usuario.get("aprobado", False):
+                        st.warning(f"🚨 **Hola {usuario}.** Tu cuenta está validada, pero se encuentra **Bloqueada por Pago**. Avisa al administrador apenas realices tu transferencia para activar tu cupo.")
                     else:
-                        otros_datos = []
-                        for otro_j, otro_info in data["jugadores"].items():
-                            if otro_j != usuario and otro_info.get("aprobado", False):
-                                o_pred = otro_info["predicciones"].get(pid, None)
-                                o_txt = f"{o_pred['eq1']} - {o_pred['eq2']}" if o_pred else "No ha apostado"
-                                otros_datos.append({"Jugador": otro_j, "Apuesta": o_txt})
-                        if otros_datos:
-                            st.table(pd.DataFrame(otros_datos))
-                        else:
-                            st.info("Nadie más ha apostado en este partido aún.")
-                st.divider()
+                        st.success(f"🔓 **Acceso Concedido.** Bienvenido {usuario}. Gestiona tus pronósticos:")
+                        
+                        for p in data["partidos"]:
+                            pid = str(p["id"])
+                            st.write(f"**{p['fase']} ({p['fecha']})**")
+                            
+                            if "Por definir" in p["eq1"] or "Por definir" in p["eq2"]:
+                                st.info(f"🔒 Partido bloqueado. Esperando definición de equipos de fases previas.")
+                            elif p["goles_eq1"] is not None:
+                                st.error(f"🏁 Partido Finalizado Oficialmente: {p['eq1']} {p['goles_eq1']} - {p['goles_eq2']} {p['eq2']}. Tu apuesta fija fue: {info_usuario['predicciones'].get(pid, {}).get('eq1', '-')}-{info_usuario['predicciones'].get(pid, {}).get('eq2', '-')}")
+                            else:
+                                col1, col2, col3 = st.columns([2,1,2])
+                                val1 = info_usuario["predicciones"].get(pid, {}).get("eq1", 0)
+                                val2 = info_usuario["predicciones"].get(pid, {}).get("eq2", 0)
+                                
+                                with col1: pr1 = st.number_input(f"Goles {p['eq1']}", min_value=0, step=1, value=val1, key=f"p1_{pid}")
+                                with col3: pr2 = st.number_input(f"Goles {p['eq2']}", min_value=0, step=1, value=val2, key=f"p2_{pid}")
+                                
+                                if st.button("Guardar Apuesta", key=f"save_{pid}"):
+                                    info_usuario["predicciones"][pid] = {"eq1": pr1, "eq2": pr2}
+                                    save_data(data)
+                                    st.success("¡Apuesta guardada correctamente!")
+                            
+                            # --- SISTEMA ANTI-COPIA ---
+                            ya_aposto = pid in info_usuario["predicciones"]
+                            with st.expander("👁️ Ver qué apostaron los demás muchachos"):
+                                if not ya_aposto:
+                                    st.warning("🔒 Para evitar copias, debes registrar y guardar tu propia apuesta primero para poder desbloquear los pronósticos de los demás.")
+                                else:
+                                    otros_datos = []
+                                    for otro_j, otro_info in data["jugadores"].items():
+                                        if otro_j != usuario and otro_info.get("aprobado", False):
+                                            o_pred = otro_info["predicciones"].get(pid, None)
+                                            o_txt = f"{o_pred['eq1']} - {o_pred['eq2']}" if o_pred else "No ha apostado"
+                                            otros_datos.append({"Jugador": otro_j, "Apuesta": o_txt})
+                                    if otros_datos:
+                                        st.table(pd.DataFrame(otros_datos))
+                                    else:
+                                        st.info("Nadie más ha apostado en este partido aún.")
+                            st.divider()
 
 # --- PESTAÑA 3: PANEL ADMIN (APROBACIÓN & MARCADORES) ---
 with tab3:
@@ -211,7 +231,6 @@ with tab3:
     if clave == "temix.1234":
         st.success("Autenticación Exitosa.")
         
-        # Bloque A: Validación de Pagos de Jugadores
         st.write("### 💰 Control de Acceso y Pagos")
         jugadores_lista = list(data["jugadores"].keys())
         if jugadores_lista:
@@ -228,7 +247,6 @@ with tab3:
             
         st.divider()
         
-        # Bloque B: Ingreso de Resultados Reales
         st.write("### ⚽ Registro de Marcadores Oficiales")
         for p in data["partidos"]:
             if "Por definir" in p["eq1"] or "Por definir" in p["eq2"]: continue
@@ -240,7 +258,6 @@ with tab3:
             with col1: rg1 = st.number_input(f"Goles Final {p['eq1']}", min_value=0, step=1, value=v1, key=f"r1_{p['id']}")
             with col2: rg2 = st.number_input(f"Goles Final {p['eq2']}", min_value=0, step=1, value=v2, key=f"r2_{p['id']}")
             
-            # En caso de empate en eliminación directa, definir quién pasa manualmente
             ganador_m = p.get("ganador_manual", p["eq1"])
             if rg1 == rg2 and p["fase"] != "16vos":
                 ganador_m = st.selectbox(f"¿Quién avanzó por Penales?", [p["eq1"], p["eq2"]], key=f"pen_{p['id']}")
@@ -255,3 +272,8 @@ with tab3:
                 st.success("Marcador e historial de posiciones actualizados.")
                 st.rerun()
             st.write("---")
+
+   
+
+                   
+                 
